@@ -1,0 +1,32 @@
+aid: okex
+name: OKEx
+description: "Cryptocurrency exchange based in Seychelles"
+url: https://www.okex.com/docs/
+specificationVersion: '0.20'
+created: '2026-05-28'
+modified: '2026-05-28'
+x-source: public-apis/public-apis
+x-category: "Cryptocurrency"
+x-tier: 3
+x-tier-reason: bulk-registered-from-public-apis
+tags:
+  - Cryptocurrency
+  - Public APIs
+apis:
+  - name: OKEx
+    description: "Cryptocurrency exchange based in Seychelles"
+    humanURL: https://www.okex.com/docs/
+    baseURL: https://www.okex.com/docs/
+    tags:
+      - Cryptocurrency
+    properties:
+      - type: Documentation
+        url: https://www.okex.com/docs/
+common:
+  - type: Website
+    url: https://www.okex.com/docs/
+  - type: PublicAPIsListing
+    url: https://github.com/public-apis/public-apis
+maintainers:
+  - FN: Kin Lane
+    email: kin@apievangelist.com
