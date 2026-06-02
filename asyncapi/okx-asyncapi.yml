@@ -1,0 +1,1915 @@
+asyncapi: 2.6.0
+info:
+  title: OKX V5 WebSocket API
+  version: '5.0.0'
+  description: |
+    AsyncAPI 2.6 description of the OKX (formerly OKEx) V5 public, private, and business
+    WebSocket APIs. OKX exposes three WebSocket endpoints, each carrying a distinct family
+    of channels. All channels share a common subscribe/unsubscribe envelope:
+
+    Subscribe:
+    ```json
+    { "id": "1512", "op": "subscribe", "args": [ { "channel": "tickers", "instId": "BTC-USDT" } ] }
+    ```
+
+    Unsubscribe uses `op: "unsubscribe"` with the same args shape.
+
+    Private endpoints require a login first:
+    ```json
+    { "op": "login", "args": [ { "apiKey": "...", "passphrase": "...", "timestamp": "1704876947", "sign": "<base64 HMAC-SHA256>" } ] }
+    ```
+    Where `sign = base64( HMAC_SHA256( secretKey, timestamp + "GET" + "/users/self/verify" ) )`.
+
+    Heartbeat: clients send the literal text frame `ping` if no message has been
+    received for less than 30s; server replies with `pong`. Connections idle for
+    30s without subscriptions or pushed data are closed.
+
+    Connection limits: 3 connect requests per second per IP, 480 subscribe / unsubscribe / login
+    requests per connection per hour, 30 connections per channel per sub-account.
+
+    Source: https://www.okx.com/docs-v5/en/#overview-websocket
+  contact:
+    name: OKX
+    url: https://www.okx.com/docs-v5/en/
+  license:
+    name: OKX Terms of Service
+    url: https://www.okx.com/terms-of-service
+  x-source: https://www.okx.com/docs-v5/en/#overview-websocket
+
+defaultContentType: application/json
+
+servers:
+  public:
+    url: ws.okx.com:8443
+    protocol: wss
+    pathname: /ws/v5/public
+    description: |
+      Public market data WebSocket. No login required. Hosts public-channel
+      subscriptions such as instruments, tickers, candlesticks, trades, order books,
+      mark price, funding rate, index, liquidation orders, open interest, etc.
+  private:
+    url: ws.okx.com:8443
+    protocol: wss
+    pathname: /ws/v5/private
+    description: |
+      Private trading account WebSocket. Requires `op: login` with API key,
+      passphrase, timestamp and HMAC-SHA256 signature before subscribing.
+      Hosts account, positions, balance-and-position, orders, fills, etc., and
+      supports order placement / amend / cancel ops.
+    security:
+      - okxApiKey: []
+  business:
+    url: ws.okx.com:8443
+    protocol: wss
+    pathname: /ws/v5/business
+    description: |
+      Business WebSocket. Requires login for the user-scoped channels (deposit-info,
+      withdrawal-info, account-greeks, grid orders, algo orders, copy-trading,
+      structured block trades, recurring buy, RFQs, quotes). Also carries the public
+      spread-trading and public block-trading channels.
+    security:
+      - okxApiKey: []
+
+channels:
+  # ---------------------------------------------------------------------------
+  # Connection-wide operation channel (subscribe/unsubscribe/login/ping/order ops)
+  # ---------------------------------------------------------------------------
+  /ops:
+    description: |
+      Logical channel representing operation frames sent from the client over any
+      of the three sockets. OKX multiplexes subscribe, unsubscribe, login, ping,
+      order, batch-orders, amend-order, cancel-order, mass-cancel, sprd-order,
+      sprd-amend-order, sprd-cancel-order, and sprd-mass-cancel onto a single
+      connection. Server replies arrive as `event` messages or push frames on the
+      appropriate channel.
+    publish:
+      operationId: sendOp
+      summary: Send an operation frame (subscribe, login, ping, order, etc.)
+      message:
+        oneOf:
+          - $ref: '#/components/messages/SubscribeOp'
+          - $ref: '#/components/messages/UnsubscribeOp'
+          - $ref: '#/components/messages/LoginOp'
+          - $ref: '#/components/messages/PingFrame'
+          - $ref: '#/components/messages/PlaceOrderOp'
+          - $ref: '#/components/messages/BatchOrdersOp'
+          - $ref: '#/components/messages/AmendOrderOp'
+          - $ref: '#/components/messages/CancelOrderOp'
+          - $ref: '#/components/messages/MassCancelOp'
+    subscribe:
+      operationId: receiveEvent
+      summary: Receive subscribe/login/error/pong acknowledgements
+      message:
+        oneOf:
+          - $ref: '#/components/messages/EventAck'
+          - $ref: '#/components/messages/PongFrame'
+          - $ref: '#/components/messages/OrderOpAck'
+
+  # ===========================================================================
+  # PUBLIC CHANNELS (wss://ws.okx.com:8443/ws/v5/public)
+  # ===========================================================================
+  instruments:
+    servers: [public]
+    description: Push when instrument state changes (new listing, expiry, suspension).
+    subscribe:
+      operationId: onInstruments
+      message:
+        $ref: '#/components/messages/InstrumentsPush'
+
+  open-interest:
+    servers: [public]
+    description: Push open interest for SWAP, FUTURES, OPTION instruments every 3s.
+    subscribe:
+      operationId: onOpenInterest
+      message:
+        $ref: '#/components/messages/OpenInterestPush'
+
+  funding-rate:
+    servers: [public]
+    description: Funding rate for SWAP perpetuals. Pushed when rate changes or on schedule.
+    subscribe:
+      operationId: onFundingRate
+      message:
+        $ref: '#/components/messages/FundingRatePush'
+
+  price-limit:
+    servers: [public]
+    description: Maximum buy / minimum sell limit prices, pushed every 5s.
+    subscribe:
+      operationId: onPriceLimit
+      message:
+        $ref: '#/components/messages/PriceLimitPush'
+
+  estimated-price:
+    servers: [public]
+    description: Estimated delivery / exercise / settlement price for FUTURES and OPTION.
+    subscribe:
+      operationId: onEstimatedPrice
+      message:
+        $ref: '#/components/messages/EstimatedPricePush'
+
+  mark-price:
+    servers: [public]
+    description: Mark price for MARGIN, FUTURES, SWAP, OPTION; pushed every 200ms when changed.
+    subscribe:
+      operationId: onMarkPrice
+      message:
+        $ref: '#/components/messages/MarkPricePush'
+
+  mark-price-candlesticks:
+    servers: [public]
+    description: |
+      Mark price candlesticks. Channel names: mark-price-candle1Y/6M/3M/1M/1W/1D/2D/3D/5D/
+      12H/6H/4H/2H/1H/30m/15m/5m/3m/1m and their UTC variants (-utc suffix).
+    subscribe:
+      operationId: onMarkPriceCandles
+      message:
+        $ref: '#/components/messages/CandlesticksPush'
+
+  index-tickers:
+    servers: [public]
+    description: Index ticker for an underlying index (e.g. BTC-USD index).
+    subscribe:
+      operationId: onIndexTickers
+      message:
+        $ref: '#/components/messages/IndexTickerPush'
+
+  index-candlesticks:
+    servers: [public]
+    description: |
+      Index candlesticks. Channel names: index-candle1Y/6M/3M/1M/1W/1D/2D/3D/5D/
+      12H/6H/4H/2H/1H/30m/15m/5m/3m/1m and -utc variants.
+    subscribe:
+      operationId: onIndexCandles
+      message:
+        $ref: '#/components/messages/CandlesticksPush'
+
+  liquidation-orders:
+    servers: [public]
+    description: Recent liquidation orders for SWAP, FUTURES, OPTION, MARGIN.
+    subscribe:
+      operationId: onLiquidationOrders
+      message:
+        $ref: '#/components/messages/LiquidationOrdersPush'
+
+  adl-warning:
+    servers: [public]
+    description: Auto-deleveraging warning per instrument.
+    subscribe:
+      operationId: onAdlWarning
+      message:
+        $ref: '#/components/messages/AdlWarningPush'
+
+  option-summary:
+    servers: [public]
+    description: Aggregated option summary (Greeks, IV) per option underlying.
+    subscribe:
+      operationId: onOptionSummary
+      message:
+        $ref: '#/components/messages/OptionSummaryPush'
+
+  economic-calendar:
+    servers: [public]
+    description: Economic calendar events. Login may be required for full data.
+    subscribe:
+      operationId: onEconomicCalendar
+      message:
+        $ref: '#/components/messages/EconomicCalendarPush'
+
+  tickers:
+    servers: [public]
+    description: 24h ticker per instrument; pushed every 100ms when changed.
+    subscribe:
+      operationId: onTickers
+      message:
+        $ref: '#/components/messages/TickersPush'
+
+  candlesticks:
+    servers: [public]
+    description: |
+      OHLCV candles. Subscribe with channel name from candle1Y, candle6M, candle3M,
+      candle1M, candle1W, candle1D, candle2D, candle3D, candle5D, candle12H,
+      candle6H, candle4H, candle2H, candle1H, candle30m, candle15m, candle5m,
+      candle3m, candle1m, candle1s, plus -utc variants (e.g. candle1Dutc).
+    subscribe:
+      operationId: onCandlesticks
+      message:
+        $ref: '#/components/messages/CandlesticksPush'
+
+  trades:
+    servers: [public]
+    description: Public trades feed (aggregated, pushed up to 100ms after match).
+    subscribe:
+      operationId: onTrades
+      message:
+        $ref: '#/components/messages/TradesPush'
+
+  trades-all:
+    servers: [public]
+    description: All-trades feed (every trade, non-aggregated).
+    subscribe:
+      operationId: onTradesAll
+      message:
+        $ref: '#/components/messages/TradesPush'
+
+  option-trades:
+    servers: [public]
+    description: Public option trades. Subscribe with instType=OPTION and instFamily.
+    subscribe:
+      operationId: onOptionTrades
+      message:
+        $ref: '#/components/messages/OptionTradesPush'
+
+  books:
+    servers: [public]
+    description: 400-level order book; initial snapshot then incremental updates (100ms).
+    subscribe:
+      operationId: onBooks
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  books5:
+    servers: [public]
+    description: Top-5 order book snapshot pushed every 100ms when changed.
+    subscribe:
+      operationId: onBooks5
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  books50-l2-tbt:
+    servers: [public]
+    description: 50-level L2 tick-by-tick order book (10ms). VIP4+ required.
+    subscribe:
+      operationId: onBooks50L2Tbt
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  books-l2-tbt:
+    servers: [public]
+    description: 400-level L2 tick-by-tick order book (10ms). VIP5+ required.
+    subscribe:
+      operationId: onBooksL2Tbt
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  bbo-tbt:
+    servers: [public]
+    description: Tick-by-tick best bid / best offer (top of book), 10ms.
+    subscribe:
+      operationId: onBboTbt
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  call-auction-details:
+    servers: [public]
+    description: Call auction state for instruments in auction phase.
+    subscribe:
+      operationId: onCallAuctionDetails
+      message:
+        $ref: '#/components/messages/CallAuctionDetailsPush'
+
+  event-contract-markets:
+    servers: [public]
+    description: Event contract market data updates.
+    subscribe:
+      operationId: onEventContractMarkets
+      message:
+        $ref: '#/components/messages/EventContractMarketsPush'
+
+  # ===========================================================================
+  # PRIVATE CHANNELS (wss://ws.okx.com:8443/ws/v5/private)
+  # ===========================================================================
+  account:
+    servers: [private]
+    description: Account balance updates per currency. Requires login.
+    subscribe:
+      operationId: onAccount
+      message:
+        $ref: '#/components/messages/AccountPush'
+
+  positions:
+    servers: [private]
+    description: Position updates per instrument and side. Requires login.
+    subscribe:
+      operationId: onPositions
+      message:
+        $ref: '#/components/messages/PositionsPush'
+
+  balance-and-position:
+    servers: [private]
+    description: Combined balance and position deltas (1-stream consistency). Requires login.
+    subscribe:
+      operationId: onBalanceAndPosition
+      message:
+        $ref: '#/components/messages/BalanceAndPositionPush'
+
+  position-risk-warning:
+    servers: [private]
+    description: Liquidation / margin-call risk warnings. Requires login.
+    subscribe:
+      operationId: onPositionRiskWarning
+      message:
+        $ref: '#/components/messages/PositionRiskWarningPush'
+
+  liquidation-warning:
+    servers: [private]
+    description: Imminent forced liquidation warning. Requires login.
+    subscribe:
+      operationId: onLiquidationWarning
+      message:
+        $ref: '#/components/messages/LiquidationWarningPush'
+
+  orders:
+    servers: [private]
+    description: Order create / update / fill / cancel notifications. Requires login.
+    subscribe:
+      operationId: onOrders
+      message:
+        $ref: '#/components/messages/OrdersPush'
+
+  fills:
+    servers: [private]
+    description: Trade fill stream (VIP5+). Requires login.
+    subscribe:
+      operationId: onFills
+      message:
+        $ref: '#/components/messages/FillsPush'
+
+  # ===========================================================================
+  # BUSINESS CHANNELS (wss://ws.okx.com:8443/ws/v5/business)
+  # ===========================================================================
+  deposit-info:
+    servers: [business]
+    description: Deposit notifications per currency. Requires login.
+    subscribe:
+      operationId: onDepositInfo
+      message:
+        $ref: '#/components/messages/DepositInfoPush'
+
+  withdrawal-info:
+    servers: [business]
+    description: Withdrawal status updates. Requires login.
+    subscribe:
+      operationId: onWithdrawalInfo
+      message:
+        $ref: '#/components/messages/WithdrawalInfoPush'
+
+  account-greeks:
+    servers: [business]
+    description: Portfolio Greeks per currency. Requires login.
+    subscribe:
+      operationId: onAccountGreeks
+      message:
+        $ref: '#/components/messages/AccountGreeksPush'
+
+  orders-algo:
+    servers: [business]
+    description: Algo order updates (TP/SL, trigger, trailing stop, iceberg, TWAP). Requires login.
+    subscribe:
+      operationId: onOrdersAlgo
+      message:
+        $ref: '#/components/messages/AlgoOrdersPush'
+
+  algo-advance:
+    servers: [business]
+    description: Advanced algo (iceberg/TWAP) order updates. Requires login.
+    subscribe:
+      operationId: onAlgoAdvance
+      message:
+        $ref: '#/components/messages/AlgoOrdersPush'
+
+  grid-orders-spot:
+    servers: [business]
+    description: Spot grid bot order updates. Requires login.
+    subscribe:
+      operationId: onGridOrdersSpot
+      message:
+        $ref: '#/components/messages/GridOrdersPush'
+
+  grid-orders-contract:
+    servers: [business]
+    description: Contract grid bot order updates. Requires login.
+    subscribe:
+      operationId: onGridOrdersContract
+      message:
+        $ref: '#/components/messages/GridOrdersPush'
+
+  grid-positions:
+    servers: [business]
+    description: Grid position details and PnL. Requires login.
+    subscribe:
+      operationId: onGridPositions
+      message:
+        $ref: '#/components/messages/GridPositionsPush'
+
+  grid-sub-orders:
+    servers: [business]
+    description: Individual grid sub-order events. Requires login.
+    subscribe:
+      operationId: onGridSubOrders
+      message:
+        $ref: '#/components/messages/GridSubOrdersPush'
+
+  recurring-buy:
+    servers: [business]
+    description: Recurring buy plan order updates. Requires login.
+    subscribe:
+      operationId: onRecurringBuy
+      message:
+        $ref: '#/components/messages/RecurringBuyPush'
+
+  copytrading-notification:
+    servers: [business]
+    description: Copy-trading notifications for lead traders and followers. Requires login.
+    subscribe:
+      operationId: onCopytradingNotification
+      message:
+        $ref: '#/components/messages/CopytradingNotificationPush'
+
+  # Block / RFQ trading (business)
+  rfqs:
+    servers: [business]
+    description: Request-for-quote events for the subscribed account. Requires login.
+    subscribe:
+      operationId: onRfqs
+      message:
+        $ref: '#/components/messages/RfqsPush'
+
+  quotes:
+    servers: [business]
+    description: Quote events for RFQs. Requires login.
+    subscribe:
+      operationId: onQuotes
+      message:
+        $ref: '#/components/messages/QuotesPush'
+
+  struc-block-trades:
+    servers: [business]
+    description: Account-scoped structured block trade confirmations. Requires login.
+    subscribe:
+      operationId: onStrucBlockTrades
+      message:
+        $ref: '#/components/messages/BlockTradesPush'
+
+  public-struc-block-trades:
+    servers: [business]
+    description: Public structured block trades.
+    subscribe:
+      operationId: onPublicStrucBlockTrades
+      message:
+        $ref: '#/components/messages/BlockTradesPush'
+
+  public-block-trades:
+    servers: [business]
+    description: Public block trades per instrument.
+    subscribe:
+      operationId: onPublicBlockTrades
+      message:
+        $ref: '#/components/messages/BlockTradesPush'
+
+  block-tickers:
+    servers: [business]
+    description: Block trading ticker.
+    subscribe:
+      operationId: onBlockTickers
+      message:
+        $ref: '#/components/messages/TickersPush'
+
+  # Spread trading (business)
+  sprd-orders:
+    servers: [business]
+    description: Spread trading order updates. Requires login.
+    subscribe:
+      operationId: onSprdOrders
+      message:
+        $ref: '#/components/messages/SprdOrdersPush'
+
+  sprd-trades:
+    servers: [business]
+    description: Spread trading fill stream. Requires login.
+    subscribe:
+      operationId: onSprdTrades
+      message:
+        $ref: '#/components/messages/SprdTradesPush'
+
+  sprd-public-trades:
+    servers: [business]
+    description: Public spread trades.
+    subscribe:
+      operationId: onSprdPublicTrades
+      message:
+        $ref: '#/components/messages/SprdTradesPush'
+
+  sprd-books:
+    servers: [business]
+    description: Spread order book.
+    subscribe:
+      operationId: onSprdBooks
+      message:
+        $ref: '#/components/messages/OrderBookPush'
+
+  sprd-tickers:
+    servers: [business]
+    description: Spread ticker (account scope). Requires login for private fields.
+    subscribe:
+      operationId: onSprdTickers
+      message:
+        $ref: '#/components/messages/TickersPush'
+
+  sprd-public-tickers:
+    servers: [business]
+    description: Public spread ticker.
+    subscribe:
+      operationId: onSprdPublicTickers
+      message:
+        $ref: '#/components/messages/TickersPush'
+
+components:
+  securitySchemes:
+    okxApiKey:
+      type: userPassword
+      description: |
+        OKX API key auth over WebSocket. After connecting, send an `op: "login"`
+        frame whose args carry `apiKey`, `passphrase`, `timestamp` and `sign`.
+        `sign` is base64( HMAC-SHA256( secretKey, timestamp + "GET" + "/users/self/verify" ) ).
+
+  messages:
+    # ---- Op envelope messages ------------------------------------------------
+    SubscribeOp:
+      name: SubscribeOp
+      title: Subscribe
+      summary: Subscribe to one or more channels.
+      payload:
+        $ref: '#/components/schemas/SubscribeRequest'
+    UnsubscribeOp:
+      name: UnsubscribeOp
+      title: Unsubscribe
+      summary: Unsubscribe from one or more channels.
+      payload:
+        $ref: '#/components/schemas/UnsubscribeRequest'
+    LoginOp:
+      name: LoginOp
+      title: Login
+      summary: Authenticate the connection for private / business channels.
+      payload:
+        $ref: '#/components/schemas/LoginRequest'
+    PingFrame:
+      name: PingFrame
+      title: Ping
+      summary: Plain-text ping frame (literal string "ping").
+      contentType: text/plain
+      payload:
+        type: string
+        const: ping
+    PongFrame:
+      name: PongFrame
+      title: Pong
+      summary: Plain-text pong response (literal string "pong").
+      contentType: text/plain
+      payload:
+        type: string
+        const: pong
+    EventAck:
+      name: EventAck
+      title: Event Acknowledgement
+      summary: Subscribe/unsubscribe/login/error acknowledgement.
+      payload:
+        $ref: '#/components/schemas/EventResponse'
+    PlaceOrderOp:
+      name: PlaceOrderOp
+      title: Place order via WebSocket
+      payload:
+        $ref: '#/components/schemas/PlaceOrderRequest'
+    BatchOrdersOp:
+      name: BatchOrdersOp
+      title: Batch place orders via WebSocket
+      payload:
+        $ref: '#/components/schemas/BatchOrdersRequest'
+    AmendOrderOp:
+      name: AmendOrderOp
+      title: Amend order via WebSocket
+      payload:
+        $ref: '#/components/schemas/AmendOrderRequest'
+    CancelOrderOp:
+      name: CancelOrderOp
+      title: Cancel order via WebSocket
+      payload:
+        $ref: '#/components/schemas/CancelOrderRequest'
+    MassCancelOp:
+      name: MassCancelOp
+      title: Mass cancel orders via WebSocket
+      payload:
+        $ref: '#/components/schemas/MassCancelRequest'
+    OrderOpAck:
+      name: OrderOpAck
+      title: Order operation acknowledgement
+      payload:
+        $ref: '#/components/schemas/OrderOpResponse'
+
+    # ---- Public channel messages --------------------------------------------
+    InstrumentsPush:
+      name: InstrumentsPush
+      title: Instruments push
+      payload:
+        $ref: '#/components/schemas/InstrumentsEvent'
+    OpenInterestPush:
+      name: OpenInterestPush
+      payload:
+        $ref: '#/components/schemas/OpenInterestEvent'
+    FundingRatePush:
+      name: FundingRatePush
+      payload:
+        $ref: '#/components/schemas/FundingRateEvent'
+    PriceLimitPush:
+      name: PriceLimitPush
+      payload:
+        $ref: '#/components/schemas/PriceLimitEvent'
+    EstimatedPricePush:
+      name: EstimatedPricePush
+      payload:
+        $ref: '#/components/schemas/EstimatedPriceEvent'
+    MarkPricePush:
+      name: MarkPricePush
+      payload:
+        $ref: '#/components/schemas/MarkPriceEvent'
+    IndexTickerPush:
+      name: IndexTickerPush
+      payload:
+        $ref: '#/components/schemas/IndexTickerEvent'
+    CandlesticksPush:
+      name: CandlesticksPush
+      payload:
+        $ref: '#/components/schemas/CandlesticksEvent'
+    LiquidationOrdersPush:
+      name: LiquidationOrdersPush
+      payload:
+        $ref: '#/components/schemas/LiquidationOrdersEvent'
+    AdlWarningPush:
+      name: AdlWarningPush
+      payload:
+        $ref: '#/components/schemas/AdlWarningEvent'
+    OptionSummaryPush:
+      name: OptionSummaryPush
+      payload:
+        $ref: '#/components/schemas/OptionSummaryEvent'
+    EconomicCalendarPush:
+      name: EconomicCalendarPush
+      payload:
+        $ref: '#/components/schemas/EconomicCalendarEvent'
+    TickersPush:
+      name: TickersPush
+      payload:
+        $ref: '#/components/schemas/TickersEvent'
+    TradesPush:
+      name: TradesPush
+      payload:
+        $ref: '#/components/schemas/TradesEvent'
+    OptionTradesPush:
+      name: OptionTradesPush
+      payload:
+        $ref: '#/components/schemas/OptionTradesEvent'
+    OrderBookPush:
+      name: OrderBookPush
+      payload:
+        $ref: '#/components/schemas/OrderBookEvent'
+    CallAuctionDetailsPush:
+      name: CallAuctionDetailsPush
+      payload:
+        $ref: '#/components/schemas/CallAuctionDetailsEvent'
+    EventContractMarketsPush:
+      name: EventContractMarketsPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+
+    # ---- Private channel messages -------------------------------------------
+    AccountPush:
+      name: AccountPush
+      payload:
+        $ref: '#/components/schemas/AccountEvent'
+    PositionsPush:
+      name: PositionsPush
+      payload:
+        $ref: '#/components/schemas/PositionsEvent'
+    BalanceAndPositionPush:
+      name: BalanceAndPositionPush
+      payload:
+        $ref: '#/components/schemas/BalanceAndPositionEvent'
+    PositionRiskWarningPush:
+      name: PositionRiskWarningPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    LiquidationWarningPush:
+      name: LiquidationWarningPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    OrdersPush:
+      name: OrdersPush
+      payload:
+        $ref: '#/components/schemas/OrdersEvent'
+    FillsPush:
+      name: FillsPush
+      payload:
+        $ref: '#/components/schemas/FillsEvent'
+
+    # ---- Business channel messages ------------------------------------------
+    DepositInfoPush:
+      name: DepositInfoPush
+      payload:
+        $ref: '#/components/schemas/DepositInfoEvent'
+    WithdrawalInfoPush:
+      name: WithdrawalInfoPush
+      payload:
+        $ref: '#/components/schemas/WithdrawalInfoEvent'
+    AccountGreeksPush:
+      name: AccountGreeksPush
+      payload:
+        $ref: '#/components/schemas/AccountGreeksEvent'
+    AlgoOrdersPush:
+      name: AlgoOrdersPush
+      payload:
+        $ref: '#/components/schemas/AlgoOrdersEvent'
+    GridOrdersPush:
+      name: GridOrdersPush
+      payload:
+        $ref: '#/components/schemas/GridOrdersEvent'
+    GridPositionsPush:
+      name: GridPositionsPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    GridSubOrdersPush:
+      name: GridSubOrdersPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    RecurringBuyPush:
+      name: RecurringBuyPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    CopytradingNotificationPush:
+      name: CopytradingNotificationPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    RfqsPush:
+      name: RfqsPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    QuotesPush:
+      name: QuotesPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    BlockTradesPush:
+      name: BlockTradesPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    SprdOrdersPush:
+      name: SprdOrdersPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+    SprdTradesPush:
+      name: SprdTradesPush
+      payload:
+        $ref: '#/components/schemas/GenericEvent'
+
+  schemas:
+    # ---- Op request schemas --------------------------------------------------
+    SubscribeRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+          description: Optional client-supplied request id; echoed in the ack.
+        op:
+          type: string
+          const: subscribe
+        args:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SubscribeArg'
+    UnsubscribeRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          const: unsubscribe
+        args:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/SubscribeArg'
+    SubscribeArg:
+      type: object
+      required: [channel]
+      description: |
+        Channel selector. Different channels accept different combinations of
+        instType (SPOT, MARGIN, SWAP, FUTURES, OPTION, ANY), instFamily, instId,
+        ccy, algoId, uly, sprdId, ctType, etc.
+      properties:
+        channel:
+          type: string
+          description: Channel name, e.g. tickers, candle1m, books, account.
+        instType:
+          type: string
+          enum: [SPOT, MARGIN, SWAP, FUTURES, OPTION, ANY]
+        instFamily:
+          type: string
+        instId:
+          type: string
+        ccy:
+          type: string
+        algoId:
+          type: string
+        uly:
+          type: string
+        sprdId:
+          type: string
+        ctType:
+          type: string
+          enum: [linear, inverse]
+        extraParams:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [op, args]
+      properties:
+        op:
+          type: string
+          const: login
+        args:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [apiKey, passphrase, timestamp, sign]
+            properties:
+              apiKey:
+                type: string
+              passphrase:
+                type: string
+              timestamp:
+                type: string
+                description: Unix epoch seconds as a string.
+              sign:
+                type: string
+                description: base64( HMAC-SHA256(secretKey, timestamp + "GET" + "/users/self/verify") )
+
+    EventResponse:
+      type: object
+      properties:
+        event:
+          type: string
+          enum: [subscribe, unsubscribe, login, error, channel-conn-count, channel-conn-count-error]
+        arg:
+          $ref: '#/components/schemas/SubscribeArg'
+        code:
+          type: string
+        msg:
+          type: string
+        connId:
+          type: string
+        connCount:
+          type: string
+        channel:
+          type: string
+        id:
+          type: string
+
+    # ---- Order ops -----------------------------------------------------------
+    PlaceOrderRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          const: order
+        expTime:
+          type: string
+        args:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/OrderArg'
+    BatchOrdersRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          const: batch-orders
+        expTime:
+          type: string
+        args:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderArg'
+    AmendOrderRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          enum: [amend-order, batch-amend-orders]
+        expTime:
+          type: string
+        args:
+          type: array
+          items:
+            $ref: '#/components/schemas/AmendArg'
+    CancelOrderRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          enum: [cancel-order, batch-cancel-orders]
+        args:
+          type: array
+          items:
+            $ref: '#/components/schemas/CancelArg'
+    MassCancelRequest:
+      type: object
+      required: [op, args]
+      properties:
+        id:
+          type: string
+        op:
+          type: string
+          const: mass-cancel
+        args:
+          type: array
+          items:
+            type: object
+            properties:
+              instType:
+                type: string
+                enum: [OPTION]
+              instFamily:
+                type: string
+              lockInterval:
+                type: string
+
+    OrderArg:
+      type: object
+      required: [instId, tdMode, side, ordType, sz]
+      properties:
+        instId: { type: string }
+        tdMode:
+          type: string
+          enum: [cash, cross, isolated, spot_isolated]
+        ccy: { type: string }
+        clOrdId: { type: string }
+        tag: { type: string }
+        side:
+          type: string
+          enum: [buy, sell]
+        posSide:
+          type: string
+          enum: [long, short, net]
+        ordType:
+          type: string
+          enum: [market, limit, post_only, fok, ioc, optimal_limit_ioc, mmp, mmp_and_post_only, op_fok]
+        sz: { type: string }
+        px: { type: string }
+        reduceOnly: { type: boolean }
+        tgtCcy: { type: string }
+        banAmend: { type: boolean }
+        stpMode:
+          type: string
+          enum: [cancel_maker, cancel_taker, cancel_both]
+
+    AmendArg:
+      type: object
+      required: [instId]
+      properties:
+        instId: { type: string }
+        cxlOnFail: { type: boolean }
+        ordId: { type: string }
+        clOrdId: { type: string }
+        reqId: { type: string }
+        newSz: { type: string }
+        newPx: { type: string }
+
+    CancelArg:
+      type: object
+      required: [instId]
+      properties:
+        instId: { type: string }
+        ordId: { type: string }
+        clOrdId: { type: string }
+
+    OrderOpResponse:
+      type: object
+      properties:
+        id: { type: string }
+        op: { type: string }
+        code: { type: string }
+        msg: { type: string }
+        inTime: { type: string }
+        outTime: { type: string }
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              ordId: { type: string }
+              clOrdId: { type: string }
+              tag: { type: string }
+              ts: { type: string }
+              sCode: { type: string }
+              sMsg: { type: string }
+
+    # ---- Generic push envelope ----------------------------------------------
+    PushEnvelope:
+      type: object
+      properties:
+        arg:
+          $ref: '#/components/schemas/SubscribeArg'
+        action:
+          type: string
+          enum: [snapshot, update]
+        data:
+          type: array
+          items: {}
+
+    GenericEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+
+    # ---- Public channel event payloads --------------------------------------
+    InstrumentsEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Instrument'
+
+    Instrument:
+      type: object
+      properties:
+        instType: { type: string }
+        instId: { type: string }
+        uly: { type: string }
+        instFamily: { type: string }
+        baseCcy: { type: string }
+        quoteCcy: { type: string }
+        settleCcy: { type: string }
+        ctVal: { type: string }
+        ctMult: { type: string }
+        ctValCcy: { type: string }
+        optType: { type: string }
+        stk: { type: string }
+        listTime: { type: string }
+        expTime: { type: string }
+        lever: { type: string }
+        tickSz: { type: string }
+        lotSz: { type: string }
+        minSz: { type: string }
+        ctType: { type: string }
+        state: { type: string }
+        ruleType: { type: string }
+        maxLmtSz: { type: string }
+        maxMktSz: { type: string }
+        maxTwapSz: { type: string }
+        maxIcebergSz: { type: string }
+        maxTriggerSz: { type: string }
+        maxStopSz: { type: string }
+
+    OpenInterestEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  oi: { type: string }
+                  oiCcy: { type: string }
+                  oiUsd: { type: string }
+                  ts: { type: string }
+
+    FundingRateEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  fundingRate: { type: string }
+                  nextFundingRate: { type: string }
+                  fundingTime: { type: string }
+                  nextFundingTime: { type: string }
+                  method: { type: string }
+                  minFundingRate: { type: string }
+                  maxFundingRate: { type: string }
+                  settState: { type: string }
+                  settFundingRate: { type: string }
+                  premium: { type: string }
+                  formulaType: { type: string }
+                  impactValue: { type: string }
+                  ts: { type: string }
+
+    PriceLimitEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  buyLmt: { type: string }
+                  sellLmt: { type: string }
+                  enabled: { type: boolean }
+                  ts: { type: string }
+
+    EstimatedPriceEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  settlePx: { type: string }
+                  ts: { type: string }
+
+    MarkPriceEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  markPx: { type: string }
+                  ts: { type: string }
+
+    IndexTickerEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instId: { type: string }
+                  idxPx: { type: string }
+                  open24h: { type: string }
+                  high24h: { type: string }
+                  low24h: { type: string }
+                  sodUtc0: { type: string }
+                  sodUtc8: { type: string }
+                  ts: { type: string }
+
+    CandlesticksEvent:
+      description: |
+        Push payload `data` is an array of candle rows. Each row is itself a
+        string array:
+        [ts, open, high, low, close, vol, volCcy, volCcyQuote, confirm]
+        - ts: open time, ms since epoch
+        - vol: trading volume in contracts (derivatives) or base ccy (spot)
+        - volCcy: volume in base ccy (derivatives) or quote ccy (spot/margin)
+        - volCcyQuote: trading volume in quote ccy
+        - confirm: "0" = unfinished, "1" = closed candle
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: array
+                minItems: 9
+                maxItems: 9
+                items:
+                  type: string
+
+    LiquidationOrdersEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instFamily: { type: string }
+                  instId: { type: string }
+                  details:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        side: { type: string }
+                        posSide: { type: string }
+                        bkPx: { type: string }
+                        sz: { type: string }
+                        bkLoss: { type: string }
+                        ccy: { type: string }
+                        ts: { type: string }
+
+    AdlWarningEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instFamily: { type: string }
+                  instId: { type: string }
+                  adlRsn: { type: string }
+                  adlLevel: { type: string }
+                  ts: { type: string }
+
+    OptionSummaryEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  uly: { type: string }
+                  delta: { type: string }
+                  gamma: { type: string }
+                  vega: { type: string }
+                  theta: { type: string }
+                  deltaBS: { type: string }
+                  gammaBS: { type: string }
+                  vegaBS: { type: string }
+                  thetaBS: { type: string }
+                  lever: { type: string }
+                  markVol: { type: string }
+                  bidVol: { type: string }
+                  askVol: { type: string }
+                  realVol: { type: string }
+                  volLv: { type: string }
+                  fwdPx: { type: string }
+                  ts: { type: string }
+
+    EconomicCalendarEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  calendarId: { type: string }
+                  date: { type: string }
+                  region: { type: string }
+                  category: { type: string }
+                  event: { type: string }
+                  refDate: { type: string }
+                  actual: { type: string }
+                  previous: { type: string }
+                  forecast: { type: string }
+                  dateSpan: { type: string }
+                  importance: { type: string }
+                  uTime: { type: string }
+                  prevInitial: { type: string }
+                  ccy: { type: string }
+                  unit: { type: string }
+
+    TickersEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  last: { type: string }
+                  lastSz: { type: string }
+                  askPx: { type: string }
+                  askSz: { type: string }
+                  bidPx: { type: string }
+                  bidSz: { type: string }
+                  open24h: { type: string }
+                  high24h: { type: string }
+                  low24h: { type: string }
+                  volCcy24h: { type: string }
+                  vol24h: { type: string }
+                  sodUtc0: { type: string }
+                  sodUtc8: { type: string }
+                  ts: { type: string }
+
+    TradesEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instId: { type: string }
+                  tradeId: { type: string }
+                  px: { type: string }
+                  sz: { type: string }
+                  side:
+                    type: string
+                    enum: [buy, sell]
+                  ts: { type: string }
+                  count: { type: string }
+
+    OptionTradesEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  fillVol: { type: string }
+                  fwdPx: { type: string }
+                  idxPx: { type: string }
+                  instFamily: { type: string }
+                  instId: { type: string }
+                  markPx: { type: string }
+                  optType: { type: string }
+                  px: { type: string }
+                  side:
+                    type: string
+                    enum: [buy, sell]
+                  sz: { type: string }
+                  tradeId: { type: string }
+                  ts: { type: string }
+
+    OrderBookEvent:
+      description: |
+        Order book push. `action` is "snapshot" on first message and "update" for
+        deltas (channels: books, books-l2-tbt, books50-l2-tbt). Snapshot-only
+        channels (books5, bbo-tbt) omit `action`. Each level in `asks`/`bids`
+        is the array [price, size, deprecated_zero, numOrders].
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  asks:
+                    type: array
+                    items:
+                      type: array
+                      minItems: 4
+                      maxItems: 4
+                      items: { type: string }
+                  bids:
+                    type: array
+                    items:
+                      type: array
+                      minItems: 4
+                      maxItems: 4
+                      items: { type: string }
+                  ts: { type: string }
+                  checksum: { type: integer }
+                  seqId: { type: integer }
+                  prevSeqId: { type: integer }
+                  instId: { type: string }
+
+    CallAuctionDetailsEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instId: { type: string }
+                  eqPx: { type: string }
+                  eqSz: { type: string }
+                  unmatchedSz: { type: string }
+                  bidSz: { type: string }
+                  askSz: { type: string }
+                  refPx: { type: string }
+                  ceilPx: { type: string }
+                  floorPx: { type: string }
+                  auctionEndTime: { type: string }
+                  ts: { type: string }
+
+    # ---- Private channel event payloads -------------------------------------
+    AccountEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  uTime: { type: string }
+                  totalEq: { type: string }
+                  isoEq: { type: string }
+                  adjEq: { type: string }
+                  ordFroz: { type: string }
+                  imr: { type: string }
+                  mmr: { type: string }
+                  mgnRatio: { type: string }
+                  notionalUsd: { type: string }
+                  details:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ccy: { type: string }
+                        eq: { type: string }
+                        cashBal: { type: string }
+                        uTime: { type: string }
+                        isoEq: { type: string }
+                        availEq: { type: string }
+                        disEq: { type: string }
+                        availBal: { type: string }
+                        frozenBal: { type: string }
+                        ordFrozen: { type: string }
+                        liab: { type: string }
+                        upl: { type: string }
+                        uplLiab: { type: string }
+                        crossLiab: { type: string }
+                        isoLiab: { type: string }
+                        mgnRatio: { type: string }
+                        interest: { type: string }
+                        twap: { type: string }
+                        maxLoan: { type: string }
+                        eqUsd: { type: string }
+                        notionalLever: { type: string }
+                        stgyEq: { type: string }
+                        isoUpl: { type: string }
+
+    PositionsEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  mgnMode: { type: string }
+                  posId: { type: string }
+                  posSide: { type: string }
+                  pos: { type: string }
+                  baseBal: { type: string }
+                  quoteBal: { type: string }
+                  posCcy: { type: string }
+                  availPos: { type: string }
+                  avgPx: { type: string }
+                  upl: { type: string }
+                  uplRatio: { type: string }
+                  instId: { type: string }
+                  lever: { type: string }
+                  liqPx: { type: string }
+                  markPx: { type: string }
+                  imr: { type: string }
+                  margin: { type: string }
+                  mgnRatio: { type: string }
+                  mmr: { type: string }
+                  liab: { type: string }
+                  liabCcy: { type: string }
+                  interest: { type: string }
+                  tradeId: { type: string }
+                  notionalUsd: { type: string }
+                  optVal: { type: string }
+                  adl: { type: string }
+                  ccy: { type: string }
+                  last: { type: string }
+                  idxPx: { type: string }
+                  usdPx: { type: string }
+                  bePx: { type: string }
+                  deltaBS: { type: string }
+                  deltaPA: { type: string }
+                  gammaBS: { type: string }
+                  gammaPA: { type: string }
+                  thetaBS: { type: string }
+                  thetaPA: { type: string }
+                  vegaBS: { type: string }
+                  vegaPA: { type: string }
+                  cTime: { type: string }
+                  uTime: { type: string }
+                  pTime: { type: string }
+
+    BalanceAndPositionEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  pTime: { type: string }
+                  eventType:
+                    type: string
+                    enum: [snapshot, delivered, exercised, transferred, filled, liquidation, claw_back, adl, funding_fee, adjust_margin, set_leverage, interest_deduction, settlement]
+                  balData:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ccy: { type: string }
+                        cashBal: { type: string }
+                        uTime: { type: string }
+                  posData:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        posId: { type: string }
+                        tradeId: { type: string }
+                        instId: { type: string }
+                        instType: { type: string }
+                        mgnMode: { type: string }
+                        posSide: { type: string }
+                        pos: { type: string }
+                        ccy: { type: string }
+                        posCcy: { type: string }
+                        avgPx: { type: string }
+                        uTime: { type: string }
+                  trades:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        instId: { type: string }
+                        tradeId: { type: string }
+
+    OrdersEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  ccy: { type: string }
+                  ordId: { type: string }
+                  clOrdId: { type: string }
+                  tag: { type: string }
+                  px: { type: string }
+                  sz: { type: string }
+                  ordType: { type: string }
+                  side: { type: string }
+                  posSide: { type: string }
+                  tdMode: { type: string }
+                  tgtCcy: { type: string }
+                  fillSz: { type: string }
+                  fillPx: { type: string }
+                  tradeId: { type: string }
+                  accFillSz: { type: string }
+                  fillNotionalUsd: { type: string }
+                  fillTime: { type: string }
+                  fillFee: { type: string }
+                  fillFeeCcy: { type: string }
+                  fillPnl: { type: string }
+                  execType: { type: string }
+                  avgPx: { type: string }
+                  state:
+                    type: string
+                    enum: [canceled, live, partially_filled, filled, mmp_canceled]
+                  lever: { type: string }
+                  tpTriggerPx: { type: string }
+                  tpTriggerPxType: { type: string }
+                  tpOrdPx: { type: string }
+                  slTriggerPx: { type: string }
+                  slTriggerPxType: { type: string }
+                  slOrdPx: { type: string }
+                  attachAlgoOrds:
+                    type: array
+                    items: { type: object }
+                  stpId: { type: string }
+                  stpMode: { type: string }
+                  feeCcy: { type: string }
+                  fee: { type: string }
+                  rebateCcy: { type: string }
+                  rebate: { type: string }
+                  pnl: { type: string }
+                  source: { type: string }
+                  cancelSource: { type: string }
+                  amendSource: { type: string }
+                  category: { type: string }
+                  isTpLimit: { type: string }
+                  uTime: { type: string }
+                  cTime: { type: string }
+                  reqId: { type: string }
+                  amendResult: { type: string }
+                  reduceOnly: { type: string }
+                  quickMgnType: { type: string }
+                  algoClOrdId: { type: string }
+                  algoId: { type: string }
+                  code: { type: string }
+                  msg: { type: string }
+
+    FillsEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instId: { type: string }
+                  tradeId: { type: string }
+                  ordId: { type: string }
+                  clOrdId: { type: string }
+                  billId: { type: string }
+                  tag: { type: string }
+                  fillPx: { type: string }
+                  fillSz: { type: string }
+                  fillIdxPx: { type: string }
+                  fillPnl: { type: string }
+                  fillPxVol: { type: string }
+                  fillPxUsd: { type: string }
+                  fillMarkVol: { type: string }
+                  fillFwdPx: { type: string }
+                  fillMarkPx: { type: string }
+                  side: { type: string }
+                  posSide: { type: string }
+                  execType: { type: string }
+                  feeCcy: { type: string }
+                  fee: { type: string }
+                  ts: { type: string }
+
+    # ---- Business channel event payloads ------------------------------------
+    DepositInfoEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  uid: { type: string }
+                  subAcct: { type: string }
+                  pTime: { type: string }
+                  ccy: { type: string }
+                  chain: { type: string }
+                  amt: { type: string }
+                  from: { type: string }
+                  areaCodeFrom: { type: string }
+                  to: { type: string }
+                  areaCodeTo: { type: string }
+                  txId: { type: string }
+                  depId: { type: string }
+                  actualDepBlkConfirm: { type: string }
+                  fromWdId: { type: string }
+                  state: { type: string }
+                  ts: { type: string }
+
+    WithdrawalInfoEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  uid: { type: string }
+                  subAcct: { type: string }
+                  pTime: { type: string }
+                  ccy: { type: string }
+                  chain: { type: string }
+                  nonTradableAsset: { type: string }
+                  amt: { type: string }
+                  ts: { type: string }
+                  from: { type: string }
+                  areaCodeFrom: { type: string }
+                  to: { type: string }
+                  toAddr: { type: string }
+                  areaCodeTo: { type: string }
+                  txId: { type: string }
+                  wdId: { type: string }
+                  state: { type: string }
+                  fee: { type: string }
+                  feeCcy: { type: string }
+                  clientId: { type: string }
+                  addrEx: { type: object }
+
+    AccountGreeksEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  thetaBS: { type: string }
+                  thetaPA: { type: string }
+                  deltaBS: { type: string }
+                  deltaPA: { type: string }
+                  gammaBS: { type: string }
+                  gammaPA: { type: string }
+                  vegaBS: { type: string }
+                  vegaPA: { type: string }
+                  ccy: { type: string }
+                  ts: { type: string }
+
+    AlgoOrdersEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  instType: { type: string }
+                  instId: { type: string }
+                  ordId: { type: string }
+                  ccy: { type: string }
+                  algoId: { type: string }
+                  algoClOrdId: { type: string }
+                  sz: { type: string }
+                  ordType:
+                    type: string
+                    enum: [conditional, oco, trigger, move_order_stop, iceberg, twap]
+                  side: { type: string }
+                  posSide: { type: string }
+                  tdMode: { type: string }
+                  tgtCcy: { type: string }
+                  lever: { type: string }
+                  state:
+                    type: string
+                    enum: [live, pause, partially_effective, effective, canceled, order_failed, partially_failed]
+                  tpTriggerPx: { type: string }
+                  tpTriggerPxType: { type: string }
+                  tpOrdPx: { type: string }
+                  slTriggerPx: { type: string }
+                  slTriggerPxType: { type: string }
+                  slOrdPx: { type: string }
+                  triggerPx: { type: string }
+                  triggerPxType: { type: string }
+                  ordPx: { type: string }
+                  last: { type: string }
+                  actualSz: { type: string }
+                  actualPx: { type: string }
+                  notionalUsd: { type: string }
+                  triggerTime: { type: string }
+                  reduceOnly: { type: string }
+                  failCode: { type: string }
+                  algoClOrdTime: { type: string }
+                  cTime: { type: string }
+
+    GridOrdersEvent:
+      allOf:
+        - $ref: '#/components/schemas/PushEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                properties:
+                  algoId: { type: string }
+                  algoOrdType: { type: string }
+                  instType: { type: string }
+                  instId: { type: string }
+                  cTime: { type: string }
+                  uTime: { type: string }
+                  algoClOrdId: { type: string }
+                  tag: { type: string }
+                  state: { type: string }
+                  rebateTrans:
+                    type: array
+                    items: { type: object }
+                  maxPx: { type: string }
+                  minPx: { type: string }
+                  gridNum: { type: string }
+                  runType: { type: string }
+                  tpTriggerPx: { type: string }
+                  slTriggerPx: { type: string }
+                  tradeNum: { type: string }
+                  arbitrageNum: { type: string }
+                  totalPnl: { type: string }
+                  pnlRatio: { type: string }
+                  investment: { type: string }
+                  totalAnnualizedRate: { type: string }
+                  annualizedRate: { type: string }
+                  cancelType: { type: string }
+                  stopType: { type: string }
+                  quoteSz: { type: string }
+                  baseSz: { type: string }
+                  curQuoteSz: { type: string }
+                  curBaseSz: { type: string }
+                  profit: { type: string }
+                  stopResult: { type: string }
+                  triggerParams:
+                    type: array
+                    items: { type: object }

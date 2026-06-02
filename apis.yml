@@ -4,7 +4,7 @@ description: "Cryptocurrency exchange based in Seychelles"
 url: https://www.okex.com/docs/
 specificationVersion: '0.20'
 created: '2026-05-28'
-modified: '2026-05-28'
+modified: '2026-05-29'
 x-source: public-apis/public-apis
 x-category: "Cryptocurrency"
 x-tier: 3
@@ -22,6 +22,8 @@ apis:
     properties:
       - type: Documentation
         url: https://www.okex.com/docs/
+      - type: AsyncAPI
+        url: asyncapi/okx-asyncapi.yml
 common:
   - type: Website
     url: https://www.okex.com/docs/
