@@ -1,4 +1,4 @@
-# OKEx (okex)
+# OKEx
 
 <!-- API-EVANGELIST-PROVENANCE:BEGIN -->
 > ### About this repository
@@ -66,26 +66,124 @@
 
 Cryptocurrency exchange based in Seychelles
 
-**APIs.yml:** [apis.yml](apis.yml)
+**Areas:** Cryptocurrency · Public APIs
 
-## Type
-- **x-type:** company
-- **x-tier:** 3 (bulk-registered from public-apis)
-- **source:** [public-apis/public-apis](https://github.com/public-apis/public-apis) — category: Cryptocurrency
+## OKEx on APIs.io
 
-## API
-- **OKEx** — [Documentation](https://www.okex.com/docs/)
+Everything profiled for OKEx is published on APIs.io rather than in this repository. Start at the provider page — **[apis.io/providers/okex/](https://apis.io/providers/okex/)** — or go straight to one of the APIs or properties below.
 
-## Tags
-Cryptocurrency, Public APIs
+### APIs (1)
 
-## Notes
-This entry was bulk-registered as part of a public-apis catalog sweep on 2026-05-28.
-A real OpenAPI artifact will be added during a follow-up enrichment pass if the provider publishes one.
+- [OKEx](https://apis.io/apis/okex/okex/) — Cryptocurrency exchange based in Seychelles
 
-## Timestamps
-- **Created:** 2026-05-28
-- **Modified:** 2026-05-28
+### Published properties
 
-## Maintainers
-- **Kin Lane** — kin@apievangelist.com
+Each property below is a page on APIs.io carrying the machine-readable artifact and what it says.
+
+#### AsyncAPI (1)
+
+Event-driven and webhook contracts.
+
+- [OKX V5 WebSocket API](https://apis.io/asyncapis/okex/okx-asyncapi/)
+
+#### Event channels (56)
+
+Individual events and webhooks the provider emits.
+
+- [account](https://apis.io/channels/okex/account/)
+- [account-greeks](https://apis.io/channels/okex/account-greeks/)
+- [adl-warning](https://apis.io/channels/okex/adl-warning/)
+- [algo-advance](https://apis.io/channels/okex/algo-advance/)
+- [balance-and-position](https://apis.io/channels/okex/balance-and-position/)
+- [bbo-tbt](https://apis.io/channels/okex/bbo-tbt/)
+- [block-tickers](https://apis.io/channels/okex/block-tickers/)
+- [books](https://apis.io/channels/okex/books/)
+- [books-l2-tbt](https://apis.io/channels/okex/books-l2-tbt/)
+- [books5](https://apis.io/channels/okex/books5/)
+- [books50-l2-tbt](https://apis.io/channels/okex/books50-l2-tbt/)
+- [call-auction-details](https://apis.io/channels/okex/call-auction-details/)
+- [candlesticks](https://apis.io/channels/okex/candlesticks/)
+- [copytrading-notification](https://apis.io/channels/okex/copytrading-notification/)
+- [deposit-info](https://apis.io/channels/okex/deposit-info/)
+- [economic-calendar](https://apis.io/channels/okex/economic-calendar/)
+- [estimated-price](https://apis.io/channels/okex/estimated-price/)
+- [event-contract-markets](https://apis.io/channels/okex/event-contract-markets/)
+- [fills](https://apis.io/channels/okex/fills/)
+- [funding-rate](https://apis.io/channels/okex/funding-rate/)
+- [grid-orders-contract](https://apis.io/channels/okex/grid-orders-contract/)
+- [grid-orders-spot](https://apis.io/channels/okex/grid-orders-spot/)
+- [grid-positions](https://apis.io/channels/okex/grid-positions/)
+- [grid-sub-orders](https://apis.io/channels/okex/grid-sub-orders/)
+- [index-candlesticks](https://apis.io/channels/okex/index-candlesticks/)
+- …and 31 more published on APIs.io
+
+#### Governance rules (1)
+
+Spectral rulesets for the provider's contracts.
+
+- [OKEx — asyncapi rules](https://apis.io/rules/okex/okex-asyncapi-spectral-rules/)
+
+#### Security (1)
+
+Authentication, trust centre, and vulnerability disclosure.
+
+- [Okex Domain Security](https://apis.io/security/okex/okex-domain-security/)
+
+## Where to find this API
+
+Links to the company's own pages. This repository publishes no copy of their specifications — the canonical document is theirs and lives at the URLs below.
+
+- [Website](https://www.okex.com/docs/)
+
+## API Evangelist rating
+
+**Kin Score 17.7** — emerging · rubric 0.24.0 · scored 2026-10-17
+
+| Facet | Score |
+|---|---|
+| Discoverability | 55.4 |
+| Contract quality | 43.8 |
+| Contract governance | 13.6 |
+| Operational transparency | 0.0 |
+| Developer ergonomics | 4.8 |
+| Access clarity | 0.0 |
+
+**Agent readiness 14.0** — agent-aware
+
+| Agent-readiness dimension | Result |
+|---|---|
+| Spec Presence | yes |
+| Agentic Access | — |
+| Reversibility Documented | — |
+| MCP Server | — |
+| Auth Clarity | — |
+| Idempotency | — |
+| Error Semantics | — |
+| OpenAPI Examples | — |
+| Rate Limit Signal | — |
+| Event Surface Described | derived (partial credit) |
+| Agent Skills | — |
+| Well Known Catalog | — |
+| Consent Identity | — |
+| Agent Card | — |
+| Dry Run Mode | — |
+| Delegated Identity | — |
+| Protected Resource Metadata | — |
+| Dynamic Client Registration | — |
+| Agentic Commerce | — |
+
+**Regulatory alignment 5.9** — Horizontal (data, software, accessibility, platform)
+
+The rubric is published at [github.com/api-evangelist/kin-score](https://github.com/api-evangelist/kin-score). The per-check breakdown behind these numbers — which checks were earned, partial or missed — along with score history and how this provider compares to its peers, is available at [apis.io/providers/okex/](https://apis.io/providers/okex/).
+
+## How this profile is made
+
+API Evangelist profiles a company's public API surface the way a developer would find it: the website, developer portal and documentation, the specifications it publishes, its public repositories, and its pricing, status and changelog pages. From that it derives the properties above — contracts split per API, workflows, schemas, collections, governance rules, plans and rate limits — and scores them against the published [Kin Score rubric](https://github.com/api-evangelist/kin-score).
+
+The artifacts are published on [APIs.io](https://apis.io), not in this repository. This repository is the public record for OKEx: the place to say something is wrong, missing or out of date, and to ask for a re-score or a removal.
+
+## Open an issue
+
+- **Something about this listing** — a wrong description, a missing API, a stale artifact or a question about the rating: [open an issue on this repository](https://github.com/api-evangelist/okex/issues/new).
+- **A new API, or one that is not in the catalog yet** — [submit it on APIs.io](https://apis.io/add/).
+- **Anything else** — [the APIs.io inbox](https://github.com/api-search/inbox/issues/new) or [info@apievangelist.com](mailto:info@apievangelist.com).
